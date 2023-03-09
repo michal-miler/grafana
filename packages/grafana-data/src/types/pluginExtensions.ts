@@ -12,6 +12,7 @@ export type PluginExtension = {
   title: string;
   description: string;
   key: number;
+  pluginName: string;
 };
 
 export type PluginExtensionLink = PluginExtension & {

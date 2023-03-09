@@ -280,7 +280,7 @@ export function getPanelMenu(
     context: createExtensionContext(panel, dashboard),
   });
 
-  if (extensions.length >= 0) {
+  if (extensions.length > 0) {
     const extensionsMenu: PanelMenuItem[] = [];
 
     for (const extension of extensions) {
