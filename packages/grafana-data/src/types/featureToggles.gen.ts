@@ -84,5 +84,5 @@ export interface FeatureToggles {
   prometheusMetricEncyclopedia?: boolean;
   timeSeriesTable?: boolean;
   influxdbBackendMigration?: boolean;
-  frontendTokenRotation?: boolean;
+  clientTokenRotation?: boolean;
 }
