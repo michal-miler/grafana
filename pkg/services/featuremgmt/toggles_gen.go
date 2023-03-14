@@ -270,4 +270,8 @@ const (
 	// FlagInfluxdbBackendMigration
 	// Query InfluxDB InfluxQL without the proxy
 	FlagInfluxdbBackendMigration = "influxdbBackendMigration"
+
+	// FlagFrontendTokenRotation
+	// Replaces the current in-request token rotation
+	FlagFrontendTokenRotation = "frontendTokenRotation"
 )
