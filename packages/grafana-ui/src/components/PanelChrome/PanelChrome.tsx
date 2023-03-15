@@ -11,6 +11,7 @@ import { Tooltip } from '../Tooltip';
 
 import { HoverWidget } from './HoverWidget';
 import { PanelDescription } from './PanelDescription';
+import { PanelExtensionsMenu } from './PanelExtensionsMenu';
 import { PanelMenu } from './PanelMenu';
 import { PanelStatus } from './PanelStatus';
 import { TitleItem } from './TitleItem';
@@ -28,6 +29,7 @@ export interface PanelChromeProps {
   description?: string | (() => string);
   titleItems?: ReactNode;
   menu?: ReactElement | (() => ReactElement);
+  extensions?: ReactElement | (() => ReactElement);
   dragClass?: string;
   dragClassCancel?: string;
   hoverHeader?: boolean;
@@ -73,6 +75,7 @@ export function PanelChrome({
   displayMode = 'default',
   titleItems,
   menu,
+  extensions,
   dragClass,
   dragClassCancel,
   hoverHeader = false,
@@ -164,6 +167,15 @@ export function PanelChrome({
                 placement="bottom-end"
                 menuButtonClass={cx(styles.menuItem, dragClassCancel, 'show-on-hover')}
               />
+            )}
+
+            {extensions && (
+              <PanelExtensionsMenu
+                menu={extensions}
+                title={title}
+                placement="bottom-end"
+                menuButtonClass={cx(styles.menuItem, dragClassCancel, 'show-on-hover')}
+              ></PanelExtensionsMenu>
             )}
 
             {leftItems && <div className={styles.leftItems}>{itemsRenderer(leftItems, (item) => item)}</div>}
