@@ -72,9 +72,17 @@ func (h *RemoteLokiBackend) TestConnection(ctx context.Context) error {
 func (h *RemoteLokiBackend) Record(ctx context.Context, rule history_model.RuleMeta, states []state.StateTransition) <-chan error {
 	logger := h.log.FromContext(ctx)
 	streams := statesToStreams(rule, states, h.externalLabels, logger)
+
+	// New background job, so start with a completely new context to avoid pollution.
+	writeCtx := context.Background()
+	writeCtx, cancel := context.WithTimeout(writeCtx, 30*time.Second)
+	writeCtx = history_model.WithRuleData(writeCtx, rule)
+
 	errCh := make(chan error, 1)
-	go func() {
+	go func(ctx context.Context) {
+		defer cancel()
 		defer close(errCh)
+		logger := h.log.FromContext(ctx)
 
 		org := fmt.Sprint(rule.OrgID)
 		h.metrics.WritesTotal.WithLabelValues(org).Inc()
@@ -90,7 +98,7 @@ func (h *RemoteLokiBackend) Record(ctx context.Context, rule history_model.RuleM
 			h.metrics.TransitionsFailed.WithLabelValues(org).Add(float64(samples))
 			errCh <- fmt.Errorf("failed to save alert state history batch: %w", err)
 		}
-	}()
+	}(writeCtx)
 	return errCh
 }
 
