@@ -75,7 +75,7 @@ func (h *RemoteLokiBackend) Record(ctx context.Context, rule history_model.RuleM
 
 	// New background job, so start with a completely new context to avoid pollution.
 	writeCtx := context.Background()
-	writeCtx, cancel := context.WithTimeout(writeCtx, 30*time.Second)
+	writeCtx, cancel := context.WithTimeout(writeCtx, StateHistoryWriteTimeout)
 	writeCtx = history_model.WithRuleData(writeCtx, rule)
 
 	errCh := make(chan error, 1)
