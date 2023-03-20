@@ -569,6 +569,39 @@ func processExtendedStatsMetric(metric *MetricAgg, buckets []*simplejson.Json, p
 	return frames, nil
 }
 
+func processDefaultMetric(metric *MetricAgg, buckets []*simplejson.Json, props map[string]string) (data.Frames, error) {
+	tags := make(map[string]string, len(props))
+	timeVector := make([]time.Time, 0, len(buckets))
+	values := make([]*float64, 0, len(buckets))
+
+	for k, v := range props {
+		tags[k] = v
+	}
+
+	tags["metric"] = metric.Type
+	tags["field"] = metric.Field
+	tags["metricId"] = metric.ID
+	for _, bucket := range buckets {
+		timeValue, err := getAsTime(bucket.Get("key"))
+		if err != nil {
+			return nil, err
+		}
+		valueObj, err := bucket.Get(metric.ID).Map()
+		if err != nil {
+			continue
+		}
+		var value *float64
+		if _, ok := valueObj["normalized_value"]; ok {
+			value = castToFloat(bucket.GetPath(metric.ID, "normalized_value"))
+		} else {
+			value = castToFloat(bucket.GetPath(metric.ID, "value"))
+		}
+		timeVector = append(timeVector, timeValue)
+		values = append(values, value)
+	}
+	return data.Frames{newTimeSeriesFrame(timeVector, tags, values)}, nil
+}
+
 // nolint:gocyclo
 func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataResponse,
 	props map[string]string) error {
@@ -585,10 +618,6 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 		if metric.Hide {
 			continue
 		}
-
-		tags := make(map[string]string, len(props))
-		timeVector := make([]time.Time, 0, len(esAggBuckets))
-		values := make([]*float64, 0, len(esAggBuckets))
 
 		switch metric.Type {
 		case countType:
@@ -617,33 +646,11 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 
 			frames = append(frames, extendedStatsFrames...)
 		default:
-			for k, v := range props {
-				tags[k] = v
+			defaultFrames, err := processDefaultMetric(metric, jsonBuckets, props)
+			if err != nil {
+				return err
 			}
-
-			tags["metric"] = metric.Type
-			tags["field"] = metric.Field
-			tags["metricId"] = metric.ID
-			for _, v := range esAggBuckets {
-				bucket := simplejson.NewFromAny(v)
-				timeValue, err := getAsTime(bucket.Get("key"))
-				if err != nil {
-					return err
-				}
-				valueObj, err := bucket.Get(metric.ID).Map()
-				if err != nil {
-					continue
-				}
-				var value *float64
-				if _, ok := valueObj["normalized_value"]; ok {
-					value = castToFloat(bucket.GetPath(metric.ID, "normalized_value"))
-				} else {
-					value = castToFloat(bucket.GetPath(metric.ID, "value"))
-				}
-				timeVector = append(timeVector, timeValue)
-				values = append(values, value)
-			}
-			frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
+			frames = append(frames, defaultFrames...)
 		}
 	}
 	if query.Frames != nil {
