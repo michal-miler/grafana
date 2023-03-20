@@ -519,6 +519,56 @@ func processTopMetricsMetric(metric *MetricAgg, buckets []*simplejson.Json, prop
 	return frames, nil
 }
 
+func processExtendedStatsMetric(metric *MetricAgg, buckets []*simplejson.Json, props map[string]string) (data.Frames, error) {
+	metaKeys := make([]string, 0)
+	meta := metric.Meta.MustMap()
+	for k := range meta {
+		metaKeys = append(metaKeys, k)
+	}
+	sort.Strings(metaKeys)
+
+	frames := data.Frames{}
+
+	for _, statName := range metaKeys {
+		v := meta[statName]
+		if enabled, ok := v.(bool); !ok || !enabled {
+			continue
+		}
+
+		tags := make(map[string]string, len(props))
+		timeVector := make([]time.Time, 0, len(buckets))
+		values := make([]*float64, 0, len(buckets))
+
+		for k, v := range props {
+			tags[k] = v
+		}
+		tags["metric"] = statName
+		tags["field"] = metric.Field
+
+		for _, bucket := range buckets {
+			timeValue, err := getAsTime(bucket.Get("key"))
+			if err != nil {
+				return nil, err
+			}
+			var value *float64
+			switch statName {
+			case "std_deviation_bounds_upper":
+				value = castToFloat(bucket.GetPath(metric.ID, "std_deviation_bounds", "upper"))
+			case "std_deviation_bounds_lower":
+				value = castToFloat(bucket.GetPath(metric.ID, "std_deviation_bounds", "lower"))
+			default:
+				value = castToFloat(bucket.GetPath(metric.ID, statName))
+			}
+			timeVector = append(timeVector, timeValue)
+			values = append(values, value)
+		}
+		labels := tags
+		frames = append(frames, newTimeSeriesFrame(timeVector, labels, values))
+	}
+
+	return frames, nil
+}
+
 // nolint:gocyclo
 func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataResponse,
 	props map[string]string) error {
@@ -560,51 +610,12 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 			}
 			frames = append(frames, topMetricsFrames...)
 		case extendedStatsType:
-			buckets := esAggBuckets
-
-			metaKeys := make([]string, 0)
-			meta := metric.Meta.MustMap()
-			for k := range meta {
-				metaKeys = append(metaKeys, k)
+			extendedStatsFrames, err := processExtendedStatsMetric(metric, jsonBuckets, props)
+			if err != nil {
+				return err
 			}
-			sort.Strings(metaKeys)
-			for _, statName := range metaKeys {
-				v := meta[statName]
-				if enabled, ok := v.(bool); !ok || !enabled {
-					continue
-				}
 
-				tags := make(map[string]string, len(props))
-				timeVector := make([]time.Time, 0, len(esAggBuckets))
-				values := make([]*float64, 0, len(esAggBuckets))
-
-				for k, v := range props {
-					tags[k] = v
-				}
-				tags["metric"] = statName
-				tags["field"] = metric.Field
-
-				for _, v := range buckets {
-					bucket := simplejson.NewFromAny(v)
-					timeValue, err := getAsTime(bucket.Get("key"))
-					if err != nil {
-						return err
-					}
-					var value *float64
-					switch statName {
-					case "std_deviation_bounds_upper":
-						value = castToFloat(bucket.GetPath(metric.ID, "std_deviation_bounds", "upper"))
-					case "std_deviation_bounds_lower":
-						value = castToFloat(bucket.GetPath(metric.ID, "std_deviation_bounds", "lower"))
-					default:
-						value = castToFloat(bucket.GetPath(metric.ID, statName))
-					}
-					timeVector = append(timeVector, timeValue)
-					values = append(values, value)
-				}
-				labels := tags
-				frames = append(frames, newTimeSeriesFrame(timeVector, labels, values))
-			}
+			frames = append(frames, extendedStatsFrames...)
 		default:
 			for k, v := range props {
 				tags[k] = v
