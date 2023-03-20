@@ -409,11 +409,39 @@ func newTimeSeriesFrame(timeData []time.Time, tags map[string]string, values []*
 	return frame
 }
 
+func processCountMetrics(buckets []*simplejson.Json, props map[string]string) (*data.Frame, error) {
+	tags := make(map[string]string, len(props))
+	timeVector := make([]time.Time, 0, len(buckets))
+	values := make([]*float64, 0, len(buckets))
+
+	for _, bucket := range buckets {
+		value := castToFloat(bucket.Get("doc_count"))
+		timeValue, err := getAsTime(bucket.Get("key"))
+		if err != nil {
+			return nil, err
+		}
+		timeVector = append(timeVector, timeValue)
+		values = append(values, value)
+	}
+
+	for k, v := range props {
+		tags[k] = v
+	}
+	tags["metric"] = countType
+	return newTimeSeriesFrame(timeVector, tags, values), nil
+}
+
 // nolint:gocyclo
 func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataResponse,
 	props map[string]string) error {
 	frames := data.Frames{}
 	esAggBuckets := esAgg.Get("buckets").MustArray()
+
+	jsonBuckets := make([]*simplejson.Json, len(esAggBuckets))
+
+	for i, v := range esAggBuckets {
+		jsonBuckets[i] = simplejson.NewFromAny(v)
+	}
 
 	for _, metric := range target.Metrics {
 		if metric.Hide {
@@ -426,22 +454,11 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 
 		switch metric.Type {
 		case countType:
-			for _, v := range esAggBuckets {
-				bucket := simplejson.NewFromAny(v)
-				value := castToFloat(bucket.Get("doc_count"))
-				timeValue, err := getAsTime(bucket.Get("key"))
-				if err != nil {
-					return err
-				}
-				timeVector = append(timeVector, timeValue)
-				values = append(values, value)
+			frame, err := processCountMetrics(jsonBuckets, props)
+			if err != nil {
+				return err
 			}
-
-			for k, v := range props {
-				tags[k] = v
-			}
-			tags["metric"] = countType
-			frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
+			frames = append(frames, frame)
 		case percentilesType:
 			buckets := esAggBuckets
 			if len(buckets) == 0 {
