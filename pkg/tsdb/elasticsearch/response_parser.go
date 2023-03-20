@@ -436,8 +436,6 @@ func processPercentilesMetric(metric *MetricAgg, buckets []*simplejson.Json, pro
 		return data.Frames{}, nil
 	}
 
-	frames := data.Frames{}
-
 	firstBucket := buckets[0]
 	percentiles := firstBucket.GetPath(metric.ID, "values").MustMap()
 
@@ -446,6 +444,9 @@ func processPercentilesMetric(metric *MetricAgg, buckets []*simplejson.Json, pro
 		percentileKeys = append(percentileKeys, k)
 	}
 	sort.Strings(percentileKeys)
+
+	frames := data.Frames{}
+
 	for _, percentileName := range percentileKeys {
 		tags := make(map[string]string, len(props))
 		timeVector := make([]time.Time, 0, len(buckets))
@@ -466,6 +467,52 @@ func processPercentilesMetric(metric *MetricAgg, buckets []*simplejson.Json, pro
 			timeVector = append(timeVector, timeValue)
 			values = append(values, value)
 		}
+		frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
+	}
+
+	return frames, nil
+}
+
+func processTopMetricsMetric(metric *MetricAgg, buckets []*simplejson.Json, props map[string]string) (data.Frames, error) {
+	metrics := metric.Settings.Get("metrics").MustArray()
+
+	frames := data.Frames{}
+
+	for _, metricField := range metrics {
+		tags := make(map[string]string, len(props))
+		timeVector := make([]time.Time, 0, len(buckets))
+		values := make([]*float64, 0, len(buckets))
+		for k, v := range props {
+			tags[k] = v
+		}
+
+		tags["field"] = metricField.(string)
+		tags["metric"] = "top_metrics"
+
+		for _, bucket := range buckets {
+			stats := bucket.GetPath(metric.ID, "top")
+			timeValue, err := getAsTime(bucket.Get("key"))
+			if err != nil {
+				return nil, err
+			}
+			timeVector = append(timeVector, timeValue)
+
+			for _, stat := range stats.MustArray() {
+				stat := stat.(map[string]interface{})
+
+				metrics, hasMetrics := stat["metrics"]
+				if hasMetrics {
+					metrics := metrics.(map[string]interface{})
+					metricValue, hasMetricValue := metrics[metricField.(string)]
+
+					if hasMetricValue && metricValue != nil {
+						v := metricValue.(float64)
+						values = append(values, &v)
+					}
+				}
+			}
+		}
+
 		frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
 	}
 
@@ -505,51 +552,13 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 			if err != nil {
 				return err
 			}
-
 			frames = append(frames, percentileFrames...)
 		case topMetricsType:
-			buckets := esAggBuckets
-			metrics := metric.Settings.Get("metrics").MustArray()
-
-			for _, metricField := range metrics {
-				tags := make(map[string]string, len(props))
-				timeVector := make([]time.Time, 0, len(esAggBuckets))
-				values := make([]*float64, 0, len(esAggBuckets))
-				for k, v := range props {
-					tags[k] = v
-				}
-
-				tags["field"] = metricField.(string)
-				tags["metric"] = "top_metrics"
-
-				for _, v := range buckets {
-					bucket := simplejson.NewFromAny(v)
-					stats := bucket.GetPath(metric.ID, "top")
-					timeValue, err := getAsTime(bucket.Get("key"))
-					if err != nil {
-						return err
-					}
-					timeVector = append(timeVector, timeValue)
-
-					for _, stat := range stats.MustArray() {
-						stat := stat.(map[string]interface{})
-
-						metrics, hasMetrics := stat["metrics"]
-						if hasMetrics {
-							metrics := metrics.(map[string]interface{})
-							metricValue, hasMetricValue := metrics[metricField.(string)]
-
-							if hasMetricValue && metricValue != nil {
-								v := metricValue.(float64)
-								values = append(values, &v)
-							}
-						}
-					}
-				}
-
-				frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
+			topMetricsFrames, err := processTopMetricsMetric(metric, jsonBuckets, props)
+			if err != nil {
+				return err
 			}
-
+			frames = append(frames, topMetricsFrames...)
 		case extendedStatsType:
 			buckets := esAggBuckets
 
