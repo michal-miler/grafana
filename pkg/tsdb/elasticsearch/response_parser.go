@@ -456,10 +456,10 @@ func processPercentilesMetric(metric *MetricAgg, buckets []*simplejson.Json, pro
 		}
 		tags["metric"] = "p" + percentileName
 		tags["field"] = metric.Field
-		for _, v := range buckets {
-			bucket := simplejson.NewFromAny(v)
+		for _, bucket := range buckets {
 			value := castToFloat(bucket.GetPath(metric.ID, "values", percentileName))
-			timeValue, err := getAsTime(bucket.Get("key"))
+			key := bucket.Get("key")
+			timeValue, err := getAsTime(key)
 			if err != nil {
 				return nil, err
 			}
@@ -501,41 +501,12 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 			}
 			frames = append(frames, countFrames...)
 		case percentilesType:
-			buckets := esAggBuckets
-			if len(buckets) == 0 {
-				break
+			percentileFrames, err := processPercentilesMetric(metric, jsonBuckets, props)
+			if err != nil {
+				return err
 			}
 
-			firstBucket := simplejson.NewFromAny(buckets[0])
-			percentiles := firstBucket.GetPath(metric.ID, "values").MustMap()
-
-			percentileKeys := make([]string, 0)
-			for k := range percentiles {
-				percentileKeys = append(percentileKeys, k)
-			}
-			sort.Strings(percentileKeys)
-			for _, percentileName := range percentileKeys {
-				tags := make(map[string]string, len(props))
-				timeVector := make([]time.Time, 0, len(esAggBuckets))
-				values := make([]*float64, 0, len(esAggBuckets))
-
-				for k, v := range props {
-					tags[k] = v
-				}
-				tags["metric"] = "p" + percentileName
-				tags["field"] = metric.Field
-				for _, v := range buckets {
-					bucket := simplejson.NewFromAny(v)
-					value := castToFloat(bucket.GetPath(metric.ID, "values", percentileName))
-					timeValue, err := getAsTime(bucket.Get("key"))
-					if err != nil {
-						return err
-					}
-					timeVector = append(timeVector, timeValue)
-					values = append(values, value)
-				}
-				frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
-			}
+			frames = append(frames, percentileFrames...)
 		case topMetricsType:
 			buckets := esAggBuckets
 			metrics := metric.Settings.Get("metrics").MustArray()
