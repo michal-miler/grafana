@@ -431,8 +431,45 @@ func processCountMetric(buckets []*simplejson.Json, props map[string]string) (da
 	return data.Frames{newTimeSeriesFrame(timeVector, tags, values)}, nil
 }
 
-func processPercentilesMetric(buckets []*simplejson.Json, props map[string]string) (*data.Frame, error) {
+func processPercentilesMetric(metric *MetricAgg, buckets []*simplejson.Json, props map[string]string) (data.Frames, error) {
+	if len(buckets) == 0 {
+		return data.Frames{}, nil
+	}
 
+	frames := data.Frames{}
+
+	firstBucket := buckets[0]
+	percentiles := firstBucket.GetPath(metric.ID, "values").MustMap()
+
+	percentileKeys := make([]string, 0)
+	for k := range percentiles {
+		percentileKeys = append(percentileKeys, k)
+	}
+	sort.Strings(percentileKeys)
+	for _, percentileName := range percentileKeys {
+		tags := make(map[string]string, len(props))
+		timeVector := make([]time.Time, 0, len(buckets))
+		values := make([]*float64, 0, len(buckets))
+
+		for k, v := range props {
+			tags[k] = v
+		}
+		tags["metric"] = "p" + percentileName
+		tags["field"] = metric.Field
+		for _, v := range buckets {
+			bucket := simplejson.NewFromAny(v)
+			value := castToFloat(bucket.GetPath(metric.ID, "values", percentileName))
+			timeValue, err := getAsTime(bucket.Get("key"))
+			if err != nil {
+				return nil, err
+			}
+			timeVector = append(timeVector, timeValue)
+			values = append(values, value)
+		}
+		frames = append(frames, newTimeSeriesFrame(timeVector, tags, values))
+	}
+
+	return frames, nil
 }
 
 // nolint:gocyclo
