@@ -409,7 +409,7 @@ func newTimeSeriesFrame(timeData []time.Time, tags map[string]string, values []*
 	return frame
 }
 
-func processCountMetrics(buckets []*simplejson.Json, props map[string]string) (*data.Frame, error) {
+func processCountMetric(buckets []*simplejson.Json, props map[string]string) (data.Frames, error) {
 	tags := make(map[string]string, len(props))
 	timeVector := make([]time.Time, 0, len(buckets))
 	values := make([]*float64, 0, len(buckets))
@@ -428,7 +428,11 @@ func processCountMetrics(buckets []*simplejson.Json, props map[string]string) (*
 		tags[k] = v
 	}
 	tags["metric"] = countType
-	return newTimeSeriesFrame(timeVector, tags, values), nil
+	return data.Frames{newTimeSeriesFrame(timeVector, tags, values)}, nil
+}
+
+func processPercentilesMetric(buckets []*simplejson.Json, props map[string]string) (*data.Frame, error) {
+
 }
 
 // nolint:gocyclo
@@ -454,11 +458,11 @@ func processMetrics(esAgg *simplejson.Json, target *Query, query *backend.DataRe
 
 		switch metric.Type {
 		case countType:
-			frame, err := processCountMetrics(jsonBuckets, props)
+			countFrames, err := processCountMetric(jsonBuckets, props)
 			if err != nil {
 				return err
 			}
-			frames = append(frames, frame)
+			frames = append(frames, countFrames...)
 		case percentilesType:
 			buckets := esAggBuckets
 			if len(buckets) == 0 {
